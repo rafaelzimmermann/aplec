@@ -13,7 +13,7 @@ fn main() -> iced_layershell::Result {
     let args: Vec<String> = std::env::args().collect();
 
     if args.get(1).map(|s| s.as_str()) == Some("daemon") {
-        tokio::runtime::Runtime::new().unwrap().block_on(crate::daemon::run());
+        tokio::runtime::Runtime::new().expect("failed to start tokio runtime").block_on(crate::daemon::run());
         Ok(())
     } else {
         let layer_settings = LayerShellSettings {

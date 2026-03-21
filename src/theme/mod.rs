@@ -28,8 +28,6 @@ pub struct Theme {
     pub background: Color,
     pub text: Color,
     pub text_dim: Color,
-    pub accent: Color,
-    pub selected_bg: Color,
     pub border: Color,
 }
 
@@ -41,8 +39,6 @@ impl Default for Theme {
             background: hex("#1e1e2eee"),
             text: hex("#cdd6f4"),
             text_dim: hex("#6c7086"),
-            accent: hex("#cba6f7"),
-            selected_bg: hex("#313244"),
             border: hex("#45475a"),
         }
     }
@@ -75,13 +71,13 @@ impl Theme {
         match key {
             "placement" => {
                 self.placement = match value {
-                    "top-right"     => Placement::TopRight,
-                    "top-left"      => Placement::TopLeft,
-                    "top-center"    => Placement::TopCenter,
-                    "bottom-right"  => Placement::BottomRight,
-                    "bottom-left"   => Placement::BottomLeft,
+                    "top-right" => Placement::TopRight,
+                    "top-left" => Placement::TopLeft,
+                    "top-center" => Placement::TopCenter,
+                    "bottom-right" => Placement::BottomRight,
+                    "bottom-left" => Placement::BottomLeft,
                     "bottom-center" => Placement::BottomCenter,
-                    _               => Placement::Center,
+                    _ => Placement::Center,
                 };
                 return;
             }
@@ -93,14 +89,14 @@ impl Theme {
             }
             _ => {}
         }
-        let Some(color) = parse_color(value) else { return };
+        let Some(color) = parse_color(value) else {
+            return;
+        };
         match key {
-            "background"  => self.background  = color,
-            "text"        => self.text        = color,
-            "text_dim"    => self.text_dim    = color,
-            "accent"      => self.accent      = color,
-            "selected_bg" => self.selected_bg = color,
-            "border"      => self.border      = color,
+            "background" => self.background = color,
+            "text" => self.text = color,
+            "text_dim" => self.text_dim = color,
+            "border" => self.border = color,
             _ => {}
         }
     }
@@ -168,9 +164,9 @@ mod tests {
     #[test]
     fn apply_colour_key_updates_field() {
         let mut t = Theme::default();
-        t.apply_key("accent", "#ff0000");
-        assert!((t.accent.r - 1.0).abs() < 0.01);
-        assert_eq!(t.accent.g, 0.0);
+        t.apply_key("border", "#ff0000");
+        assert!((t.border.r - 1.0).abs() < 0.01);
+        assert_eq!(t.border.g, 0.0);
     }
 
     #[test]
@@ -199,9 +195,9 @@ mod tests {
     fn parse_conf_overrides_only_given_keys() {
         let t = Theme::parse_onto(
             Theme::default(),
-            "accent = #ff0000\n# comment\n\ntext = #aabbcc\n",
+            "border = #ff0000\n# comment\n\ntext = #aabbcc\n",
         );
-        assert!((t.accent.r - 1.0).abs() < 0.01);
+        assert!((t.border.r - 1.0).abs() < 0.01);
         assert_eq!(t.background, Theme::default().background);
         assert_eq!(t.placement, Theme::default().placement);
     }

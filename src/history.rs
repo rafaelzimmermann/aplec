@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -11,7 +12,13 @@ pub struct ClipEntry {
 }
 
 fn history_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => {
+            eprintln!("Error: HOME environment variable not set. Using fallback path.");
+            return PathBuf::from("/tmp/aplec-history.json");
+        }
+    };
     PathBuf::from(home).join(".local/share/aplec/history.json")
 }
 
@@ -28,7 +35,12 @@ pub fn save(entries: &[ClipEntry]) {
         let _ = std::fs::create_dir_all(parent);
     }
     if let Ok(json) = serde_json::to_string_pretty(entries) {
-        let _ = std::fs::write(path, json);
+        let _ = std::fs::write(&path, json);
+        if let Ok(meta) = std::fs::metadata(&path) {
+            let mut perms = meta.permissions();
+            perms.set_mode(0o600);
+            let _ = std::fs::set_permissions(&path, perms);
+        }
     }
 }
 
