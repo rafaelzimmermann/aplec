@@ -1,17 +1,13 @@
-use iced::{event, event::Status, keyboard::{self, key::Named}, widget::{column, container, row, text, mouse_area, text_input}, Background, Border, Element, Event, Length, Subscription, Task};
+use iced::{event, event::Status, keyboard::{self, key::Named}, widget::{column, container, text}, Alignment, Background, Border, Element, Event, Length, Padding, Subscription, Task};
 use iced_layershell::to_layer_message;
 use crate::history::ClipEntry;
-use crate::theme::Theme;
+use crate::theme::{Placement, Theme};
 
-const VIEW_SIZE: usize = 8;
 const POPUP_W: f32 = 520.0;
 
 pub struct Aplec {
     pub all: Vec<ClipEntry>,
-    pub filtered: Vec<usize>,
-    pub selected: usize,
-    pub view_start: usize,
-    pub query: String,
+    pub index: usize,
     pub theme: Theme,
 }
 
@@ -19,58 +15,14 @@ pub struct Aplec {
 #[derive(Debug, Clone)]
 pub enum Message {
     Close,
-    Absorb,
     Activate(usize),
     IcedEvent(Event, Status),
-    QueryChanged(String),
-    QuerySubmit,
 }
 
-fn refilter(state: &mut Aplec) {
-    state.filtered.clear();
-    if state.query.is_empty() {
-        for i in 0..state.all.len() {
-            state.filtered.push(i);
-        }
-    } else {
-        let q = state.query.to_lowercase();
-        for (i, entry) in state.all.iter().enumerate() {
-            if entry.content.to_lowercase().contains(&q) {
-                state.filtered.push(i);
-            }
-        }
-    }
-    state.selected = 0;
-    state.view_start = 0;
-}
-
-async fn do_copy(content: String) {
-    use tokio::io::AsyncWriteExt;
-    if let Ok(mut child) = tokio::process::Command::new("wl-copy")
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-    {
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(content.as_bytes()).await;
-        }
-        let _ = child.wait().await;
-    }
-}
 
 pub fn boot() -> (Aplec, Task<Message>) {
     let all = crate::history::load();
-    let mut filtered = Vec::new();
-    for i in 0..all.len() {
-        filtered.push(i);
-    }
-    let state = Aplec {
-        all,
-        filtered,
-        selected: 0,
-        view_start: 0,
-        query: String::new(),
-        theme: Theme::load(),
-    };
+    let state = Aplec { all, index: 0, theme: Theme::load() };
     (state, Task::none())
 }
 
@@ -80,14 +32,23 @@ pub fn namespace() -> String {
 
 pub fn update(state: &mut Aplec, msg: Message) -> Task<Message> {
     match msg {
-        Message::Close => Task::none(),
-        Message::Absorb => Task::none(),
+        Message::Close => std::process::exit(0),
         Message::Activate(idx) => {
-            if let Some(&entry_idx) = state.filtered.get(idx) {
-                if let Some(entry) = state.all.get(entry_idx) {
-                    let content = entry.content.clone();
-                    return Task::perform(do_copy(content), |_| Message::Close);
+            if let Some(entry) = state.all.get(idx) {
+                use std::io::Write;
+                let content = entry.content.clone();
+                if let Ok(mut child) = std::process::Command::new("wl-copy")
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn()
+                {
+                    if let Some(mut stdin) = child.stdin.take() {
+                        let _ = stdin.write_all(content.as_bytes());
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(50));
                 }
+                std::process::exit(0);
             }
             Task::none()
         }
@@ -99,41 +60,23 @@ pub fn update(state: &mut Aplec, msg: Message) -> Task<Message> {
                             keyboard::Key::Named(Named::Escape) => {
                                 return Task::done(Message::Close);
                             }
-                            keyboard::Key::Named(Named::ArrowDown) => {
-                                if !state.filtered.is_empty() {
-                                    state.selected = (state.selected + 1).min(state.filtered.len() - 1);
-                                    if state.selected >= state.view_start + VIEW_SIZE {
-                                        state.view_start = state.selected - VIEW_SIZE + 1;
-                                    }
-                                }
+                            keyboard::Key::Named(Named::ArrowLeft) => {
+                                state.index = state.index.saturating_sub(1);
                             }
-                            keyboard::Key::Named(Named::ArrowUp) => {
-                                if !state.filtered.is_empty() && state.selected > 0 {
-                                    state.selected -= 1;
-                                    if state.selected < state.view_start {
-                                        state.view_start = state.selected;
-                                    }
-                                }
+                            keyboard::Key::Named(Named::ArrowRight) => {
+                                state.index = (state.index + 1).min(state.all.len().saturating_sub(1));
                             }
                             keyboard::Key::Named(Named::Enter) => {
-                                return Task::done(Message::Activate(state.selected));
+                                return Task::done(Message::Activate(state.index));
                             }
                             _ => {}
                         }
                     }
+                    Event::Mouse(iced::mouse::Event::ButtonPressed(_)) => {
+                        return Task::done(Message::Close);
+                    }
                     _ => {}
                 }
-            }
-            Task::none()
-        }
-        Message::QueryChanged(value) => {
-            state.query = value;
-            refilter(state);
-            Task::none()
-        }
-        Message::QuerySubmit => {
-            if !state.filtered.is_empty() {
-                return Task::done(Message::Activate(state.selected));
             }
             Task::none()
         }
@@ -141,55 +84,31 @@ pub fn update(state: &mut Aplec, msg: Message) -> Task<Message> {
     }
 }
 
-pub fn view(state: &Aplec) -> Element<Message> {
-    let search = text_input("Search...", &state.query)
-        .on_input(Message::QueryChanged)
-        .on_submit(Message::QuerySubmit)
-        .padding(10)
-        .size(14);
+pub fn view(state: &Aplec) -> Element<'_, Message> {
+    let card = if state.all.is_empty() {
+        column![text("No clipboard history")]
+            .width(Length::Fill)
+            .align_x(iced::Alignment::Center)
+    } else {
+        let counter = text(format!("[{} / {}]", state.index + 1, state.all.len()))
+            .size(12)
+            .color(state.theme.text_dim);
 
-    let list_items: Vec<Element<Message>> = state.filtered
-        .iter()
-        .skip(state.view_start)
-        .take(VIEW_SIZE)
-        .enumerate()
-        .map(|(i, &idx)| {
-            let global_idx = state.view_start + i;
-            let is_selected = global_idx == state.selected;
-            let entry = &state.all[idx];
-            let preview = if entry.content.len() > 60 {
-                format!("{}...", &entry.content[..57])
-            } else {
-                entry.content.clone()
-            };
-            
-            let row = row![
-                text(preview)
-                    .size(13)
-                    .color(if is_selected { state.theme.text } else { state.theme.text_dim })
-            ]
-            .padding(8)
-            .spacing(8)
-            .align_y(iced::Alignment::Center);
+        let content = text(&state.all[state.index].content)
+            .size(14)
+            .color(state.theme.text);
 
-            mouse_area(row)
-                .on_press(Message::Activate(global_idx))
-                .into()
-        })
-        .collect();
+        let hint = text("← →  Enter to paste   Esc to close")
+            .size(11)
+            .color(state.theme.text_dim);
 
-    let list = column(list_items)
-        .spacing(4)
-        .padding(8);
+        column![counter, content, hint]
+            .width(Length::Fill)
+            .spacing(12)
+            .padding(20)
+    };
 
-    let content = column![
-        search,
-        list,
-    ]
-    .spacing(12)
-    .padding(16);
-
-    container(content)
+    let inner = container(card)
         .width(Length::Fixed(POPUP_W))
         .style(move |_| iced::widget::container::Style {
             background: Some(Background::Color(state.theme.background)),
@@ -197,7 +116,25 @@ pub fn view(state: &Aplec) -> Element<Message> {
             text_color: None,
             shadow: iced::Shadow::default(),
             snap: false,
-        })
+        });
+
+    let m = state.theme.margin.max(0) as f32;
+    let (ax, ay, padding) = match state.theme.placement {
+        Placement::Center       => (Alignment::Center, Alignment::Center, Padding::ZERO),
+        Placement::TopLeft      => (Alignment::Start,  Alignment::Start,  Padding { top: m, left: m,  ..Padding::ZERO }),
+        Placement::TopCenter    => (Alignment::Center, Alignment::Start,  Padding { top: m,            ..Padding::ZERO }),
+        Placement::TopRight     => (Alignment::End,    Alignment::Start,  Padding { top: m, right: m, ..Padding::ZERO }),
+        Placement::BottomLeft   => (Alignment::Start,  Alignment::End,    Padding { bottom: m, left: m,  ..Padding::ZERO }),
+        Placement::BottomCenter => (Alignment::Center, Alignment::End,    Padding { bottom: m,            ..Padding::ZERO }),
+        Placement::BottomRight  => (Alignment::End,    Alignment::End,    Padding { bottom: m, right: m, ..Padding::ZERO }),
+    };
+
+    container(inner)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .padding(padding)
+        .align_x(ax)
+        .align_y(ay)
         .into()
 }
 
@@ -205,3 +142,43 @@ pub fn subscription(_: &Aplec) -> Subscription<Message> {
     event::listen_with(|event, status, _id| Some(Message::IcedEvent(event, status)))
 }
 
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn nav_right_increments_index() {
+        let len = 5usize;
+        let mut index = 2usize;
+        index = (index + 1).min(len.saturating_sub(1));
+        assert_eq!(index, 3);
+    }
+
+    #[test]
+    fn nav_right_clamps_at_end() {
+        let len = 5usize;
+        let mut index = 4usize;
+        index = (index + 1).min(len.saturating_sub(1));
+        assert_eq!(index, 4);
+    }
+
+    #[test]
+    fn nav_left_decrements_index() {
+        let mut index = 3usize;
+        index = index.saturating_sub(1);
+        assert_eq!(index, 2);
+    }
+
+    #[test]
+    fn nav_left_clamps_at_zero() {
+        let mut index = 0usize;
+        index = index.saturating_sub(1);
+        assert_eq!(index, 0);
+    }
+
+    #[test]
+    fn nav_right_on_empty_history_is_zero() {
+        let len = 0usize;
+        let mut index = 0usize;
+        index = (index + 1).min(len.saturating_sub(1));
+        assert_eq!(index, 0);
+    }
+}

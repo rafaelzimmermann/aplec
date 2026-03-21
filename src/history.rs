@@ -6,7 +6,7 @@ const MAX_ENTRIES: usize = 50;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipEntry {
-    pub content:   String,
+    pub content: String,
     pub timestamp: u64,
 }
 
@@ -42,4 +42,53 @@ pub fn add(content: String) {
     entries.insert(0, ClipEntry { content, timestamp });
     entries.truncate(MAX_ENTRIES);
     save(&entries);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // HOME is a global env var — tests that mutate it must not run in parallel.
+    static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn with_tmp_home<F: FnOnce()>(tag: &str, f: F) {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let tmp = std::env::temp_dir().join(format!("aplec-test-{}", tag));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::env::set_var("HOME", &tmp);
+        f();
+    }
+
+    #[test]
+    fn test_add_dedup_moves_to_top() {
+        with_tmp_home("dedup", || {
+            add("hello".into());
+            add("world".into());
+            add("hello".into());
+
+            let entries = load();
+            assert_eq!(entries.len(), 2);
+            assert_eq!(entries[0].content, "hello");
+            assert_eq!(entries[1].content, "world");
+        });
+    }
+
+    #[test]
+    fn test_add_truncates_at_50() {
+        with_tmp_home("trunc", || {
+            for i in 0..51 {
+                add(format!("item-{}", i));
+            }
+            let entries = load();
+            assert_eq!(entries.len(), MAX_ENTRIES);
+        });
+    }
+
+    #[test]
+    fn test_load_missing_file_returns_empty() {
+        with_tmp_home("missing", || {
+            let entries = load();
+            assert!(entries.is_empty());
+        });
+    }
 }

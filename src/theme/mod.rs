@@ -2,7 +2,6 @@ use iced::Color;
 
 // ── Placement ─────────────────────────────────────────────────────────────────
 
-/// Where on screen the popup appears.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub enum Placement {
     #[default]
@@ -23,24 +22,14 @@ pub enum Placement {
 /// Colours are `#RRGGBB` or `#RRGGBBAA`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
-    // ── Layout ─────────────────────────────────────────────────────────────
-    /// Where the popup appears on screen.
     pub placement: Placement,
-    /// Gap in pixels between the popup and the anchored screen edge / waybar.
+    /// Gap in pixels between the popup and the nearest screen edge.
     pub margin: i32,
-
-    // ── Colours ────────────────────────────────────────────────────────────
-    /// Popup window background.
     pub background: Color,
-    /// Primary text colour.
     pub text: Color,
-    /// Dimmed text colour.
     pub text_dim: Color,
-    /// Accent — selected item highlight.
     pub accent: Color,
-    /// Selected item background.
     pub selected_bg: Color,
-    /// Border colour.
     pub border: Color,
 }
 
@@ -60,35 +49,12 @@ impl Default for Theme {
 }
 
 impl Theme {
-    /// Load the active theme.
-    ///
-    /// Resolution order (later steps override earlier ones):
-    /// 1. `Default` — compiled-in values.
-    /// 2. `~/.config/aplec/theme.conf` — user overrides (colours + placement).
-    /// 3. `~/.config/aplec/themes/<name>.conf` — named theme applied *on top of*
-    ///    the user's settings, so placement/margin survive a colour-only theme.
+    /// Load theme from `~/.config/aplec/theme.conf`, falling back to defaults.
     pub fn load() -> Self {
-        let mut theme = config_path("theme.conf")
+        config_path("theme.conf")
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|c| Self::parse_onto(Self::default(), &c))
-            .unwrap_or_default();
-
-        if let Some(name) = config_path("current-theme")
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-        {
-            if let Some(content) = config_path(&format!("themes/{}.conf", name))
-                .and_then(|p| std::fs::read_to_string(p).ok())
-            {
-                // Start from the user's existing theme so placement/margin
-                // set in theme.conf are preserved when the named theme only
-                // specifies colours.
-                theme = Self::parse_onto(theme, &content);
-            }
-        }
-
-        theme
+            .unwrap_or_default()
     }
 
     fn parse_onto(mut base: Self, content: &str) -> Self {
@@ -106,18 +72,16 @@ impl Theme {
     }
 
     pub fn apply_key(&mut self, key: &str, value: &str) {
-        // Non-colour keys
         match key {
             "placement" => {
                 self.placement = match value {
-                    "top-right" => Placement::TopRight,
-                    "top-left" => Placement::TopLeft,
-                    "top-center" => Placement::TopCenter,
-                    "bottom-right" => Placement::BottomRight,
-                    "bottom-left" => Placement::BottomLeft,
+                    "top-right"     => Placement::TopRight,
+                    "top-left"      => Placement::TopLeft,
+                    "top-center"    => Placement::TopCenter,
+                    "bottom-right"  => Placement::BottomRight,
+                    "bottom-left"   => Placement::BottomLeft,
                     "bottom-center" => Placement::BottomCenter,
-                    "center" => Placement::Center,
-                    _ => Placement::default(),
+                    _               => Placement::Center,
                 };
                 return;
             }
@@ -129,57 +93,17 @@ impl Theme {
             }
             _ => {}
         }
-        // Colour keys
-        let Some(color) = parse_color(value) else {
-            return;
-        };
+        let Some(color) = parse_color(value) else { return };
         match key {
-            "background" => self.background = color,
-            "text" => self.text = color,
-            "text_dim" => self.text_dim = color,
-            "accent" => self.accent = color,
+            "background"  => self.background  = color,
+            "text"        => self.text        = color,
+            "text_dim"    => self.text_dim    = color,
+            "accent"      => self.accent      = color,
             "selected_bg" => self.selected_bg = color,
-            "border" => self.border = color,
+            "border"      => self.border      = color,
             _ => {}
         }
     }
-}
-
-/// Return sorted names of all `.conf` files in `~/.config/aplec/themes/`.
-pub fn list_themes() -> Vec<String> {
-    let Some(dir) = config_path("themes") else {
-        return Vec::new();
-    };
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| {
-            let path = e.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("conf") {
-                path.file_stem().and_then(|s| s.to_str()).map(str::to_owned)
-            } else {
-                None
-            }
-        })
-        .collect();
-    names.sort();
-    names
-}
-
-/// Write `name` to `~/.config/aplec/current-theme`.
-pub fn persist_theme(name: &str) {
-    if let Some(path) = config_path("current-theme") {
-        let _ = std::fs::write(path, name);
-    }
-}
-
-/// Read the currently active theme name from `~/.config/aplec/current-theme`.
-pub fn current_theme_name() -> Option<String> {
-    config_path("current-theme")
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
 }
 
 fn config_path(rel: &str) -> Option<std::path::PathBuf> {
@@ -280,16 +204,5 @@ mod tests {
         assert!((t.accent.r - 1.0).abs() < 0.01);
         assert_eq!(t.background, Theme::default().background);
         assert_eq!(t.placement, Theme::default().placement);
-    }
-
-    #[test]
-    fn named_theme_preserves_user_placement() {
-        let mut base = Theme::default();
-        base.placement = Placement::BottomRight;
-        base.margin = 40;
-        // Named theme only sets colours — placement and margin should survive.
-        let result = Theme::parse_onto(base, "accent = #ff0000\n");
-        assert_eq!(result.placement, Placement::BottomRight);
-        assert_eq!(result.margin, 40);
     }
 }
