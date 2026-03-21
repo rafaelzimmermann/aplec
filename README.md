@@ -4,6 +4,9 @@ A minimal Wayland clipboard history manager for Hyprland.
 
 A background daemon watches the clipboard and persists the last 50 entries to disk. A layer-shell popup lets you browse history with the arrow keys and paste a previous entry back to the clipboard.
 
+<img width="1914" height="1064" alt="image" src="https://github.com/user-attachments/assets/f88c462e-c847-4667-bd7b-4f780171eb9a" />
+
+
 ## Requirements
 
 - Wayland compositor with `wlr-layer-shell` and `zwlr-data-control` support (Hyprland, Sway, etc.)
