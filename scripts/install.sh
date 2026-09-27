@@ -139,16 +139,27 @@ mkdir -p "$SYSTEMD_DIR"
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
 Description=aplec clipboard history daemon
+# Ordering hint only. Some session launchers (e.g. Hyprland 0.56's
+# start-hyprland) never activate graphical-session.target, so the daemon is
+# pulled in by default.target instead and waits for the Wayland socket.
 After=graphical-session.target
 
 [Service]
 ExecStart=$BINARY daemon
 Restart=on-failure
+RestartSec=2
 
 [Install]
-WantedBy=graphical-session.target
+WantedBy=default.target
 EOF
 
+# Drop enablement symlinks from previous releases. We remove the wants/
+# symlinks directly instead of calling `systemctl --user disable` — on
+# stow-style setups, where the unit file itself is a symlink into a dotfiles
+# repo, disable() deletes that symlink too.
+for target in graphical-session.target default.target; do
+    rm -f "$SYSTEMD_DIR/$target.wants/aplec.service" 2>/dev/null || true
+done
 systemctl --user daemon-reload
 systemctl --user enable --now aplec
 echo "Daemon enabled and started via systemd."

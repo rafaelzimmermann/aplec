@@ -23,6 +23,12 @@ Run the install script from the project root:
 
 This builds a release binary, installs it, writes a default `~/.config/aplec/theme.conf`, and enables the systemd user service that runs the daemon.
 
+The service is `WantedBy=default.target` and the daemon discovers the Wayland
+socket itself (via `$WAYLAND_DISPLAY`, falling back to scanning
+`$XDG_RUNTIME_DIR/wayland-*`). This keeps it working under any session
+launcher — including Hyprland ≥ 0.56's `/usr/bin/start-hyprland`, which (unlike
+an uwsm-managed session) never activates `graphical-session.target`.
+
 To uninstall:
 
 ```sh
@@ -35,6 +41,12 @@ Add a keybind in `hyprland.conf`. Use the full path so the binary is found regar
 
 ```conf
 bind = $mainMod, V, exec, /home/you/.local/bin/aplec
+```
+
+Hyprland 0.56+ can also use the Lua config format:
+
+```lua
+hl.bind(mainMod .. " + V", hl.dsp.exec_cmd("~/.local/bin/aplec"))
 ```
 
 ## Usage
